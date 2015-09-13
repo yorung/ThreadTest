@@ -4,64 +4,85 @@
 #include "stdafx.h"
 #include <thread>
 #include <chrono>
+#include <shared_mutex>
 
 int a = 0;
-int egis;
-void Lock()
-{
-	__asm {
-		mov eax, 1;
-	retry:
-		xchg eax, [egis]
-		test eax, eax
-		jnz retry
-	done:
-	}
-}
 
-void Lock2()
-{
-	__asm {
-		mov eax, 1;
-	retry:
-		xchg eax, [egis]
-		test eax, eax
-		jz done
-		retry_mov :
-		mov ebx, [egis]
-		test ebx, ebx
-		jnz retry_mov
-		jmp retry
-	done:
+int egis = 0;
+class AsmLock {
+public:
+	void Lock()
+	{
+		__asm {
+			mov eax, 1;
+		retry:
+			xchg eax, [egis];
+			test eax, eax;
+			jnz retry;
+		}
 	}
-}
 
-void Unlock()
-{
-	__asm {
-		mov eax, 0;
-		xchg eax, [egis]
+	void Lock2()
+	{
+		__asm {
+			mov eax, 1;
+		retry:
+			xchg eax, [egis];
+			test eax, eax;
+			jz done;
+		retry_mov:
+			mov ebx, [egis];
+			test ebx, ebx;
+			jnz retry_mov;
+			jmp retry;
+		done:
+		}
 	}
-}
 
-void Unlock2()
-{
-	__asm {
-		mov[egis], 0;
+	void Unlock()
+	{
+		__asm {
+			mov eax, 0;
+			xchg eax, [egis];
+		}
 	}
-}
+
+	void Unlock2()
+	{
+		__asm {
+			mov[egis], 0;
+		}
+	}
+};
+
+class SharedMutex {
+	std::shared_timed_mutex mutex;
+public:
+	void Lock()
+	{
+		mutex.lock();
+	}
+
+	void Unlock()
+	{
+		mutex.unlock();
+	}
+};
+
+//static AsmLock lock;
+static SharedMutex lock;
 
 void ThreadMain()
 {
 	for (int i = 0; i < 1000000; i++) {
-		Lock();
+		lock.Lock();
 		a++;
 		if (a != 1)
 		{
 			printf("%d ", a);
 		}
 		a--;
-		Unlock();
+		lock.Unlock();
 		printf("");
 	}
 }
