@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <shared_mutex>
+#include <atomic>
 
 int a = 0;
 
@@ -69,8 +70,26 @@ public:
 	}
 };
 
+class Atomic {
+	std::atomic<int> val = 0;
+public:
+	void Lock()
+	{
+		int expected = 0;
+		while (!std::atomic_compare_exchange_weak(&val, &expected, 1)) {
+			expected = 0;
+		}
+	}
+
+	void Unlock()
+	{
+		std::atomic_exchange(&val, 0);
+	}
+};
+
 //static AsmLock lock;
-static SharedMutex lock;
+//static SharedMutex lock;
+static Atomic lock;
 
 void ThreadMain()
 {
@@ -106,6 +125,5 @@ int main()
 	double end = GetTime();
 
 	printf("elapsed: %f", end - begin);
-
 	return 0;
 }
