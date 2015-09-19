@@ -4,10 +4,9 @@
 #include "stdafx.h"
 #include <thread>
 #include <chrono>
+#include <set>
 #include <shared_mutex>
 #include <atomic>
-
-int a = 0;
 
 int egis = 0;
 class AsmLock {
@@ -91,8 +90,9 @@ public:
 //static SharedMutex lock;
 static Atomic lock;
 
-void ThreadMain()
+void IncDecThreadMain()
 {
+	static int a = 0;
 	for (int i = 0; i < 1000000; i++) {
 		lock.Lock();
 		a++;
@@ -106,6 +106,22 @@ void ThreadMain()
 	}
 }
 
+void StlContainerThreadMain()
+{
+	static std::set<int> c;
+	for (int i = 0; i < 1000000; i++) {
+		int r = rand() % 1000;
+		lock.Lock();
+		auto it = c.find(r);
+		if (it == c.end()) {
+			c.insert(r);
+		} else {
+			c.erase(it);
+		}
+		lock.Unlock();
+	}
+}
+
 double GetTime()
 {
 	static auto start = std::chrono::high_resolution_clock::now();
@@ -113,17 +129,37 @@ double GetTime()
 	return std::chrono::duration_cast<std::chrono::duration<double, std::ratio<1, 1>>>(now - start).count();
 }
 
-int main()
+void IncDecTest()
 {
+	printf("IncDecTest\n");
 	double begin = GetTime();
-	std::thread t1(ThreadMain);
-	std::thread t2(ThreadMain);
-	std::thread t3(ThreadMain);
+	std::thread t1(IncDecThreadMain);
+	std::thread t2(IncDecThreadMain);
+	std::thread t3(IncDecThreadMain);
 	t1.join();
 	t2.join();
 	t3.join();
 	double end = GetTime();
+	printf("elapsed: %f\n", end - begin);
+}
 
-	printf("elapsed: %f", end - begin);
+void StlContainerTest()
+{
+	printf("StlContainerTest\n");
+	double begin = GetTime();
+	std::thread t1(StlContainerThreadMain);
+	std::thread t2(StlContainerThreadMain);
+	std::thread t3(StlContainerThreadMain);
+	t1.join();
+	t2.join();
+	t3.join();
+	double end = GetTime();
+	printf("elapsed: %f\n", end - begin);
+}
+
+int main()
+{
+	IncDecTest();
+	StlContainerTest();
 	return 0;
 }
