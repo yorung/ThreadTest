@@ -73,6 +73,9 @@ public:
 class Atomic {
 	std::atomic<int> val = 0;
 	static const int writeLockBit = 0x40000000;
+	static const int writeWaiterBit = 0x00010000;
+	static const int writeBits = 0x7fff0000;
+	static const int readerBits = 0x0000ffff;
 
 	void LockInternal(int delta, int testBits)
 	{
@@ -87,17 +90,18 @@ class Atomic {
 public:
 	void ReadLock()
 	{
-		LockInternal(1, writeLockBit);
+		LockInternal(1, writeBits);
 	}
 
 	void WriteLock()
 	{
-		LockInternal(writeLockBit, 0xffffffff);
+		std::atomic_fetch_add(&val, writeWaiterBit);
+		LockInternal(writeLockBit, readerBits | 0x40000000);
 	}
 
 	void WriteUnlock()
 	{
-		std::atomic_fetch_sub(&val, writeLockBit);
+		std::atomic_fetch_sub(&val, writeLockBit + writeWaiterBit);
 	}
 
 	void ReadUnlock()
