@@ -74,25 +74,25 @@ class Atomic {
 	std::atomic<int> val = 0;
 	static const int writeLockBit = 0x40000000;
 
-	void LockInternal(int delta)
+	void LockInternal(int delta, int testBits)
 	{
 		int expected;
 		do {
 			do {
 				expected = val;
-			} while (expected & writeLockBit);
+			} while (expected & testBits);
 		} while (!std::atomic_compare_exchange_weak(&val, &expected, expected + delta));
 	}
 
 public:
 	void ReadLock()
 	{
-		LockInternal(1);
+		LockInternal(1, writeLockBit);
 	}
 
 	void WriteLock()
 	{
-		LockInternal(writeLockBit);
+		LockInternal(writeLockBit, 0xffffffff);
 	}
 
 	void WriteUnlock()
@@ -152,6 +152,7 @@ void StlContainerThreadMain(int id)
 			}
 			lock.ReadUnlock();
 		}
+		printf("");
 	}
 	printf("threadId=%d readFound=%d readNotFound=%d\n", id, readFound, readNotFound);
 }
