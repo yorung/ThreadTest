@@ -73,6 +73,9 @@ public:
 class Atomic {
 	std::atomic<int> val = 0;
 	static const int writeLockBit = 0x40000000;
+	static const int upgradingBit = 0x00010000;
+	static const int writeUpgradeingBits = 0x7fff0000;
+	static const int readerBits = 0x0000ffff;
 
 	void LockInternal(int delta, int testBits)
 	{
@@ -87,12 +90,18 @@ class Atomic {
 public:
 	void ReadLock()
 	{
-		LockInternal(1, writeLockBit);
+		LockInternal(1, writeUpgradeingBits);
+	}
+
+	void Upgrade()
+	{
+		std::atomic_fetch_add(&val, upgradingBit - 1);
+		LockInternal(writeLockBit - upgradingBit, readerBits | writeLockBit);
 	}
 
 	void WriteLock()
 	{
-		LockInternal(writeLockBit, 0xffffffff);
+		LockInternal(writeLockBit, readerBits | writeLockBit);
 	}
 
 	void WriteUnlock()
@@ -139,8 +148,7 @@ void StlContainerThreadMain(int id)
 			if (it != c.end()) {
 				lock.ReadUnlock();
 			} else {
-				lock.ReadUnlock();
-				lock.WriteLock();
+				lock.Upgrade();
 				auto it = c.find(r);
 				if (it == c.end()) {
 					c.insert(r);
