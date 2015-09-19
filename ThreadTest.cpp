@@ -84,7 +84,7 @@ class Atomic {
 			do {
 				expected = val;
 			} while (expected & testBits);
-		} while (!std::atomic_compare_exchange_weak(&val, &expected, expected + delta));
+		} while (!val.compare_exchange_weak(expected, expected + delta));
 	}
 
 public:
@@ -95,7 +95,7 @@ public:
 
 	void Upgrade()
 	{
-		std::atomic_fetch_add(&val, upgradingBit - 1);
+		val.fetch_add(upgradingBit - 1);
 		LockInternal(writeLockBit - upgradingBit, readerBits | writeLockBit);
 	}
 
@@ -106,12 +106,12 @@ public:
 
 	void WriteUnlock()
 	{
-		std::atomic_fetch_sub(&val, writeLockBit);
+		val.fetch_sub(writeLockBit);
 	}
 
 	void ReadUnlock()
 	{
-		std::atomic_fetch_sub(&val, 1);
+		val.fetch_sub(1);
 	}
 };
 
