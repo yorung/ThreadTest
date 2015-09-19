@@ -73,8 +73,7 @@ public:
 class Atomic {
 	std::atomic<int> val = 0;
 	static const int writeLockBit = 0x40000000;
-	static const int upgradingBit = 0x00010000;
-	static const int writeUpgradeingBits = 0x7fff0000;
+	static const int upgradableBit = 0x00010000;
 	static const int readerBits = 0x0000ffff;
 
 	void LockInternal(int delta, int testBits)
@@ -90,13 +89,27 @@ class Atomic {
 public:
 	void ReadLock()
 	{
-		LockInternal(1, writeUpgradeingBits);
+		LockInternal(1, writeLockBit);
+	}
+
+	void ReadUnlock()
+	{
+		val.fetch_sub(1);
+	}
+
+	void ReadLockUpgradable()
+	{
+		LockInternal(upgradableBit, writeLockBit | upgradableBit);
+	}
+
+	void ReadUnlockUpgradable()
+	{
+		val.fetch_sub(upgradableBit);
 	}
 
 	void Upgrade()
 	{
-		val.fetch_add(upgradingBit - 1);
-		LockInternal(writeLockBit - upgradingBit, readerBits | writeLockBit);
+		LockInternal(writeLockBit - upgradableBit, readerBits | writeLockBit);
 	}
 
 	void WriteLock()
@@ -109,10 +122,6 @@ public:
 		val.fetch_sub(writeLockBit);
 	}
 
-	void ReadUnlock()
-	{
-		val.fetch_sub(1);
-	}
 };
 
 //static AsmLock lock;
@@ -143,16 +152,13 @@ void StlContainerThreadMain(int id)
 	for (int i = 0; i < 1000000; i++) {
 		int r = rand() % 10000;
 		if (i % 10 == 0) {
-			lock.ReadLock();
+			lock.ReadLockUpgradable();
 			auto it = c.find(r);
 			if (it != c.end()) {
-				lock.ReadUnlock();
+				lock.ReadUnlockUpgradable();
 			} else {
 				lock.Upgrade();
-				auto it = c.find(r);
-				if (it == c.end()) {
-					c.insert(r);
-				}
+				c.insert(r);
 				lock.WriteUnlock();
 			}
 		} else {
