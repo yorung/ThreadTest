@@ -132,16 +132,21 @@ void StlContainerThreadMain(int id)
 	int readFound = 0;
 	int readNotFound = 0;
 	for (int i = 0; i < 1000000; i++) {
-		int r = rand() % 1000;
+		int r = rand() % 10000;
 		if (i % 10 == 0) {
-			lock.WriteLock();
+			lock.ReadLock();
 			auto it = c.find(r);
-			if (it == c.end()) {
-				c.insert(r);
+			if (it != c.end()) {
+				lock.ReadUnlock();
 			} else {
-				c.erase(it);
+				lock.ReadUnlock();
+				lock.WriteLock();
+				auto it = c.find(r);
+				if (it == c.end()) {
+					c.insert(r);
+				}
+				lock.WriteUnlock();
 			}
-			lock.WriteUnlock();
 		} else {
 			lock.ReadLock();
 			auto it = c.find(r);
