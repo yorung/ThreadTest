@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <set>
+#include <vector>
 #include <shared_mutex>
 #include <atomic>
 
@@ -71,18 +72,37 @@ public:
 
 class Atomic {
 	std::atomic<int> val = 0;
-public:
-	void Lock()
+	static const int writeLockBit = 0x40000000;
+
+	void LockInternal(int delta)
 	{
-		int expected = 0;
-		while (!std::atomic_compare_exchange_weak(&val, &expected, 1)) {
-			expected = 0;
-		}
+		int expected;
+		do {
+			do {
+				expected = val;
+			} while (expected & writeLockBit);
+		} while (!std::atomic_compare_exchange_weak(&val, &expected, expected + delta));
 	}
 
-	void Unlock()
+public:
+	void ReadLock()
 	{
-		std::atomic_exchange(&val, 0);
+		LockInternal(1);
+	}
+
+	void WriteLock()
+	{
+		LockInternal(writeLockBit);
+	}
+
+	void WriteUnlock()
+	{
+		std::atomic_fetch_sub(&val, writeLockBit);
+	}
+
+	void ReadUnlock()
+	{
+		std::atomic_fetch_sub(&val, 1);
 	}
 };
 
@@ -94,32 +114,46 @@ void IncDecThreadMain()
 {
 	static int a = 0;
 	for (int i = 0; i < 1000000; i++) {
-		lock.Lock();
+		lock.WriteLock();
 		a++;
 		if (a != 1)
 		{
 			printf("%d ", a);
 		}
 		a--;
-		lock.Unlock();
+		lock.WriteUnlock();
 		printf("");
 	}
 }
 
-void StlContainerThreadMain()
+void StlContainerThreadMain(int id)
 {
 	static std::set<int> c;
+	int readFound = 0;
+	int readNotFound = 0;
 	for (int i = 0; i < 1000000; i++) {
 		int r = rand() % 1000;
-		lock.Lock();
-		auto it = c.find(r);
-		if (it == c.end()) {
-			c.insert(r);
+		if (i % 10 == 0) {
+			lock.WriteLock();
+			auto it = c.find(r);
+			if (it == c.end()) {
+				c.insert(r);
+			} else {
+				c.erase(it);
+			}
+			lock.WriteUnlock();
 		} else {
-			c.erase(it);
+			lock.ReadLock();
+			auto it = c.find(r);
+			if (it == c.end()) {
+				readNotFound++;
+			} else {
+				readFound++;
+			}
+			lock.ReadUnlock();
 		}
-		lock.Unlock();
 	}
+	printf("threadId=%d readFound=%d readNotFound=%d\n", id, readFound, readNotFound);
 }
 
 double GetTime()
@@ -147,12 +181,13 @@ void StlContainerTest()
 {
 	printf("StlContainerTest\n");
 	double begin = GetTime();
-	std::thread t1(StlContainerThreadMain);
-	std::thread t2(StlContainerThreadMain);
-	std::thread t3(StlContainerThreadMain);
-	t1.join();
-	t2.join();
-	t3.join();
+	std::vector<std::thread> t;
+	for (int i = 0; i < 10; i++) {
+		t.emplace_back(std::thread(StlContainerThreadMain, i));
+	}
+	for (int i = 0; i < 10; i++) {
+		t[i].join();
+	}
 	double end = GetTime();
 	printf("elapsed: %f\n", end - begin);
 }
