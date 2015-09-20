@@ -59,14 +59,24 @@ public:
 class SharedMutex {
 	std::shared_timed_mutex mutex;
 public:
-	void Lock()
+	void WriteLock()
 	{
 		mutex.lock();
 	}
 
-	void Unlock()
+	void WriteUnlock()
 	{
 		mutex.unlock();
+	}
+
+	void ReadLock()
+	{
+		mutex.lock_shared();
+	}
+
+	void ReadUnlock()
+	{
+		mutex.unlock_shared();
 	}
 };
 
@@ -114,7 +124,7 @@ public:
 
 	void WriteLock()
 	{
-		LockInternal(writeLockBit, readerBits | writeLockBit);
+		LockInternal(writeLockBit, readerBits | writeLockBit | upgradableBit);
 	}
 
 	void WriteUnlock()
@@ -125,8 +135,8 @@ public:
 };
 
 //static AsmLock lock;
-//static SharedMutex lock;
-static Atomic lock;
+static SharedMutex lock;
+//static Atomic lock;
 
 void IncDecThreadMain()
 {
@@ -152,13 +162,17 @@ void StlContainerThreadMain(int id)
 	for (int i = 0; i < 1000000; i++) {
 		int r = rand() % 10000;
 		if (i % 10 == 0) {
-			lock.ReadLockUpgradable();
+			lock.ReadLock();
 			auto it = c.find(r);
 			if (it != c.end()) {
-				lock.ReadUnlockUpgradable();
+				lock.ReadUnlock();
 			} else {
-				lock.Upgrade();
-				c.insert(r);
+				lock.ReadUnlock();
+				lock.WriteLock();
+				auto it = c.find(r);
+				if (it == c.end()) {
+					c.insert(r);
+				}
 				lock.WriteUnlock();
 			}
 		} else {
