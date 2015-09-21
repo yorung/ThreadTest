@@ -83,7 +83,7 @@ public:
 class Atomic {
 	std::atomic<int> val = 0;
 	static const int writeLockBit = 0x40000000;
-	static const int upgradableBit = 0x00010000;
+	static const int upgradingBit = 0x20000000;
 	static const int readerBits = 0x0000ffff;
 
 	void LockInternal(int delta, int testBits)
@@ -99,7 +99,7 @@ class Atomic {
 public:
 	void ReadLock()
 	{
-		LockInternal(1, writeLockBit);
+		LockInternal(1, writeLockBit | upgradingBit);
 	}
 
 	void ReadUnlock()
@@ -107,24 +107,9 @@ public:
 		val.fetch_sub(1);
 	}
 
-	void ReadLockUpgradable()
-	{
-		LockInternal(upgradableBit, writeLockBit | upgradableBit);
-	}
-
-	void ReadUnlockUpgradable()
-	{
-		val.fetch_sub(upgradableBit);
-	}
-
-	void Upgrade()
-	{
-		LockInternal(writeLockBit - upgradableBit, readerBits | writeLockBit);
-	}
-
 	void WriteLock()
 	{
-		LockInternal(writeLockBit, readerBits | writeLockBit | upgradableBit);
+		LockInternal(writeLockBit, 0xffffffff);
 	}
 
 	void WriteUnlock()
@@ -132,11 +117,23 @@ public:
 		val.fetch_sub(writeLockBit);
 	}
 
+	bool TryUpgrade()
+	{
+		int expected;
+		do {
+			expected = val;
+			if (expected & upgradingBit) {
+				return false;
+			}
+		} while (!val.compare_exchange_weak(expected, expected | upgradingBit));
+		LockInternal(writeLockBit - upgradingBit - 1, writeLockBit | (readerBits & ~1));
+		return true;
+	}
 };
 
 //static AsmLock lock;
-static SharedMutex lock;
-//static Atomic lock;
+//static SharedMutex lock;
+static Atomic lock;
 
 void IncDecThreadMain()
 {
@@ -159,21 +156,23 @@ void StlContainerThreadMain(int id)
 	static std::set<int> c;
 	int readFound = 0;
 	int readNotFound = 0;
+	int upgradeFail = 0;
+	srand(id);
 	for (int i = 0; i < 1000000; i++) {
-		int r = rand() % 10000;
+		int r = rand() % 10000000;
 		if (i % 10 == 0) {
 			lock.ReadLock();
 			auto it = c.find(r);
 			if (it != c.end()) {
 				lock.ReadUnlock();
 			} else {
-				lock.ReadUnlock();
-				lock.WriteLock();
-				auto it = c.find(r);
-				if (it == c.end()) {
+				if (lock.TryUpgrade()) {
 					c.insert(r);
+					lock.WriteUnlock();
+				} else {
+					upgradeFail++;
+					lock.ReadUnlock();
 				}
-				lock.WriteUnlock();
 			}
 		} else {
 			lock.ReadLock();
@@ -187,7 +186,7 @@ void StlContainerThreadMain(int id)
 		}
 		printf("");
 	}
-	printf("threadId=%d readFound=%d readNotFound=%d\n", id, readFound, readNotFound);
+	printf("threadId=%d readFound=%d readNotFound=%d upgradeFail=%d\n", id, readFound, readNotFound, upgradeFail);
 }
 
 double GetTime()
